@@ -100,6 +100,7 @@ class LoggingConfig(BaseModel):
     log_to_file: bool = False
     log_file_path: str = "logs/run.log"
     log_evaluate: bool = True
+    show_token_counts: bool = True
 
 
 class ProjectConfig(BaseModel):

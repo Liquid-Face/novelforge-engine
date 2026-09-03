@@ -121,7 +121,9 @@ human-edited artifacts.
 Each role (`writer`, `evaluator`, and `reviewer`) has a required `primary`
 endpoint and an optional per-role `fallback` endpoint. Generated artifacts are
 protected by `state/manifest.json`; manual edits are not silently overwritten.
-Run observability is controlled by `logging` and `--verbosity`. Foundation
+Run observability is controlled by `logging` and `--verbosity`; set
+`logging.show_token_counts` to `false` to hide token counts from the console
+while retaining them in state and file logs. Foundation
 attempts are logged under `logs/foundation/<layer>/`, draft attempts under
 `logs/draft/ch_NN/`, and cumulative project token totals are stored in
 `state/token_usage.json`.

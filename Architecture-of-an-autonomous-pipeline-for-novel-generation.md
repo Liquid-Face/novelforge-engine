@@ -92,6 +92,7 @@ logging:
   log_to_file: false
   log_file_path: logs/run.log
   log_evaluate: true
+  show_token_counts: true
 ```
 
 Дополнительные секции шаблона:
@@ -156,7 +157,8 @@ my-novel/
 
 Графы получают `PipelineReporter` и передают состояние через
 `graph.stream(..., stream_mode="values")`. Reporter выводит стадии, узлы,
-роутеры, оценки, feedback и токены; уровень консоли задаётся `--verbosity` или
+роутеры, оценки, feedback и токены (если `logging.show_token_counts: true`);
+уровень консоли задаётся `--verbosity` или
 `logging.console_verbosity`, файловое логирование — параметрами `logging.*`.
 
 ## Инструменты

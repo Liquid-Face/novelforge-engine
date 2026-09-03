@@ -57,6 +57,7 @@ def _run_params(layout: ProjectLayout) -> dict:
         "logging.log_to_file": cfg.logging.log_to_file,
         "logging.log_file_path": cfg.logging.log_file_path if cfg.logging.log_to_file else "n/a",
         "logging.log_evaluate": cfg.logging.log_evaluate,
+        "logging.show_token_counts": cfg.logging.show_token_counts,
     }
     params.update(_role_params_table(layout))
     return params

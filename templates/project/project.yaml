@@ -75,3 +75,4 @@ logging:
   log_to_file: false
   log_file_path: logs/run.log
   log_evaluate: true
+  show_token_counts: true

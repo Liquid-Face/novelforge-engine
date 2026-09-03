@@ -24,8 +24,9 @@ def _strip_rich_markup(text: str) -> str:
 
 class PipelineReporter:
     def __init__(self, console_verbosity: str = "normal", log_to_file: bool = False,
-                 log_file_path: Optional[Path] = None):
+                 log_file_path: Optional[Path] = None, show_token_counts: bool = True):
         self._verbosity = console_verbosity
+        self._show_token_counts = show_token_counts
         self._console = Console()
         self._file_logger: Optional[logging.Logger] = None
         if log_to_file and log_file_path:
@@ -50,6 +51,14 @@ class PipelineReporter:
         if self._file_logger:
             self._file_logger.info(_strip_rich_markup(text))
 
+    def _emit_token(self, text: str, style: Optional[str] = None,
+                    verbose: bool = False) -> None:
+        console_allowed = self._verbosity == "verbose" if verbose else self._verbosity != "quiet"
+        if self._show_token_counts and console_allowed:
+            self._console.print(text, style=style)
+        if self._file_logger:
+            self._file_logger.info(_strip_rich_markup(text))
+
     def run_banner(self, run_kind: str, project_dir: str, params: dict[str, Any],
                    project_tokens: ProjectTokenUsage | None = None) -> None:
         self._console.print(f"\n[bold cyan]NovelForge run[/bold cyan] — [bold]{run_kind}[/bold]")
@@ -59,7 +68,7 @@ class PipelineReporter:
         table.add_column("Value")
         for key, value in params.items():
             table.add_row(str(key), str(value))
-        if project_tokens:
+        if project_tokens and self._show_token_counts:
             table.add_row("project.tokens.prompt_total", str(project_tokens.prompt_tokens_total))
             table.add_row("project.tokens.completion_total", str(project_tokens.completion_tokens_total))
             table.add_row("project.tokens.total", str(project_tokens.total_tokens))
@@ -111,9 +120,10 @@ class PipelineReporter:
 
     def llm_response_received(self, role: str, provider: str, model: str,
                               prompt_tokens: int, completion_tokens: int) -> None:
-        self._emit_verbose(
+        self._emit_token(
             f"      [dim]response received: role={role}, provider={provider}, model={model}, "
-            f"prompt_tokens={prompt_tokens}, completion_tokens={completion_tokens}[/dim]"
+            f"prompt_tokens={prompt_tokens}, completion_tokens={completion_tokens}[/dim]",
+            verbose=True,
         )
 
     def artifact(self, path: str, action: str) -> None:
@@ -126,15 +136,15 @@ class PipelineReporter:
     def token_usage(self, llm: LLMProvider) -> None:
         totals = llm.usage_totals
         if not totals.has_usage_data:
-            self._emit("    [dim]token usage (run total): not reported by provider[/dim]")
+            self._emit_token("    [dim]token usage (run total): not reported by provider[/dim]")
             return
-        self._emit(
+        self._emit_token(
             f"    [dim]tokens (run total) — prompt: {totals.prompt_tokens}, "
             f"completion: {totals.completion_tokens}, total: {totals.total_tokens}[/dim]"
         )
 
     def project_token_usage(self, project_tokens: ProjectTokenUsage) -> None:
-        self._emit(
+        self._emit_token(
             f"    [dim]tokens (project total) — prompt: {project_tokens.prompt_tokens_total}, "
             f"completion: {project_tokens.completion_tokens_total}, total: {project_tokens.total_tokens}, "
             f"runs: {project_tokens.runs_total}[/dim]"
@@ -150,4 +160,5 @@ def build_reporter_from_config(logging_config, project_root: Path) -> PipelineRe
         console_verbosity=logging_config.console_verbosity,
         log_to_file=logging_config.log_to_file,
         log_file_path=log_path,
+        show_token_counts=logging_config.show_token_counts,
     )
