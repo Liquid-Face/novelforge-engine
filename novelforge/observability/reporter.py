@@ -6,6 +6,8 @@ to the console and (optionally) to a log file.
 from __future__ import annotations
 import logging
 import re
+import threading
+import time
 from pathlib import Path
 from typing import Any, Optional
 from rich.console import Console
@@ -20,6 +22,75 @@ _TAG_RE = re.compile(r"\[/?[a-zA-Z0-9 _=#.-]+\]")
 
 def _strip_rich_markup(text: str) -> str:
     return _TAG_RE.sub("", text)
+
+
+class _LLMWaitIndicator:
+    _FRAMES = "|/-\\"
+    _TICK_SECONDS = 0.25
+
+    def __init__(self, reporter: "PipelineReporter", role: str, provider: str, model: str):
+        self._reporter = reporter
+        self._role = role
+        self._provider = provider
+        self._model = model
+        self._started = time.monotonic()
+        self._chars = 0
+        self._chunks = 0
+        self._frame = 0
+        self._last_length = 0
+        self._lock = threading.Lock()
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def __enter__(self) -> "_LLMWaitIndicator":
+        if self._enabled:
+            self._thread = threading.Thread(target=self._run, daemon=True)
+            self._thread.start()
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        self._stop.set()
+        if self._thread:
+            self._thread.join()
+        if self._enabled:
+            with self._lock:
+                self._clear()
+
+    @property
+    def _enabled(self) -> bool:
+        return self._reporter._verbosity != "quiet" and self._reporter._console.is_terminal
+
+    def update(self, chars: int, chunks: int) -> None:
+        if not self._enabled:
+            return
+        with self._lock:
+            self._chars = chars
+            self._chunks = chunks
+
+    def _run(self) -> None:
+        while not self._stop.wait(self._TICK_SECONDS):
+            with self._lock:
+                self._render()
+
+    def _render(self) -> None:
+        elapsed = int(time.monotonic() - self._started)
+        text = (
+            f"{self._FRAMES[self._frame]} {self._role} {self._provider}/{self._model}  "
+            f"{elapsed}s  {self._chars} chars  {self._chunks} chunks"
+        )
+        self._frame = (self._frame + 1) % len(self._FRAMES)
+        self._write(text)
+
+    def _clear(self) -> None:
+        self._write("", clear=True)
+
+    def _write(self, text: str, clear: bool = False) -> None:
+        output = self._reporter._console.file
+        if clear:
+            text = " " * max(self._last_length, len(text))
+        output.write(f"\r{text}\r" if clear else f"\r{text}")
+        output.flush()
+        self._last_length = len(text)
 
 
 class PipelineReporter:
@@ -125,6 +196,9 @@ class PipelineReporter:
             f"prompt_tokens={prompt_tokens}, completion_tokens={completion_tokens}[/dim]",
             verbose=True,
         )
+
+    def llm_wait_indicator(self, role: str, provider: str, model: str) -> _LLMWaitIndicator:
+        return _LLMWaitIndicator(self, role, provider, model)
 
     def artifact(self, path: str, action: str) -> None:
         self._emit(f"    [white]artifact:[/white] {action} -> {path}")

@@ -5,6 +5,7 @@ tracking (per run) and reporter callbacks for role/model/fallback visibility.
 from __future__ import annotations
 import os
 import logging
+from contextlib import nullcontext
 from dataclasses import dataclass
 from openai import OpenAI, APIError, APITimeoutError, APIConnectionError
 
@@ -76,17 +77,38 @@ class LLMProvider:
             self._reporter.role_call(role, endpoint.provider, endpoint.model, fallback=is_fallback)
             self._reporter.llm_request_waiting(role, endpoint.provider, endpoint.model)
 
-        resp = client.chat.completions.create(
-            model=endpoint.model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=temp,
-            max_tokens=mtok,
-            timeout=timeout,
+        indicator = (
+            self._reporter.llm_wait_indicator(role, endpoint.provider, endpoint.model)
+            if self._reporter else None
         )
-        usage = dict(resp.usage) if resp.usage else {}
+        with indicator or nullcontext():
+            resp = client.chat.completions.create(
+                model=endpoint.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=temp,
+                max_tokens=mtok,
+                timeout=timeout,
+                stream=True,
+                stream_options={"include_usage": True},
+            )
+            parts: list[str] = []
+            usage = {}
+            chunks = 0
+            chars = 0
+            for chunk in resp:
+                chunks += 1
+                if chunk.usage:
+                    usage = dict(chunk.usage)
+                if chunk.choices:
+                    content = chunk.choices[0].delta.content or ""
+                    if content:
+                        parts.append(content)
+                        chars += len(content)
+                        if indicator:
+                            indicator.update(chars, chunks)
         prompt_tokens = int(usage.get("prompt_tokens", 0) or 0)
         completion_tokens = int(usage.get("completion_tokens", 0) or 0)
         self.usage_totals.record(prompt_tokens, completion_tokens)
@@ -95,7 +117,7 @@ class LLMProvider:
             self._reporter.llm_response_received(role, endpoint.provider, endpoint.model, prompt_tokens, completion_tokens)
 
         return LLMResult(
-            text=resp.choices[0].message.content or "",
+            text="".join(parts),
             model=endpoint.model,
             provider=endpoint.provider,
             usage=usage,
@@ -103,7 +125,6 @@ class LLMProvider:
             completion_tokens=completion_tokens,
             fallback=is_fallback,
         )
-
     def complete(
         self,
         system_prompt: str,
