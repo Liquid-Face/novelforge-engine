@@ -1,0 +1,51 @@
+project:
+  title: "Working Title"
+  language: ru
+  genre: "dark fantasy"
+  target_audience: adult
+  chapters_total: 20
+  chapter_length_words: [2200, 3200]
+  total_length_words_target: 70000
+
+llm:
+  provider: ollama
+  base_url: "http://localhost:11434/v1"
+  api_key_env: null
+  models:
+    writer: "qwen2.5:32b"
+    evaluator: "qwen2.5:32b"
+    reviewer: "qwen2.5:32b"
+  fallback_provider: aitunnel
+  fallback_base_url: "https://api.aitunnel.ru/v1"
+  fallback_api_key_env: AITUNNEL_API_KEY
+  fallback_models:
+    writer: "claude-sonnet-4.6"
+    evaluator: "gpt-5.6-sol"
+    reviewer: "gemini-3.7-flash"
+  temperature: 0.9
+  max_tokens: 4096
+  request_timeout_s: 180
+
+thresholds:
+  foundation_score: 7.5
+  lore_score: 7.0
+  chapter_score: 6.0
+  max_draft_retries: 5
+  revision_plateau_delta: 0.5
+  revision_max_cycles: 6
+  review_max_rounds: 4
+  review_stop_max_items: 2
+
+export:
+  typeset_engine: tectonic
+  formats: [pdf, epub]
+  trim_size: "5.5in x 8.5in"
+  font: "EB Garamond"
+
+paths:
+  manuscript_dir: manuscript/chapters
+  lore_dir: manuscript
+  state_dir: state
+  logs_dir: logs
+  briefs_dir: state/briefs
+  export_dir: export

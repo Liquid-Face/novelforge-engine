@@ -1,0 +1,7 @@
+state/checkpoints.db
+logs/*.log
+export/*.pdf
+export/*.epub
+export/*.aux
+export/*.toc
+export/*.log
