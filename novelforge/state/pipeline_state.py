@@ -27,6 +27,7 @@ class PropagationDebt(BaseModel):
 class PipelineState(BaseModel):
     phase: str = "foundation"
     foundation_score: Optional[float] = None
+    foundation_layer_scores: dict[str, float] = Field(default_factory=dict)
     chapters: dict[int, ChapterRecord] = Field(default_factory=dict)
     revision_cycle: int = 0
     revision_score_history: list[float] = Field(default_factory=list)

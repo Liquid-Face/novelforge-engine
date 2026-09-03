@@ -8,6 +8,15 @@ from novelforge.llm.provider import LLMProvider
 from novelforge.prompts.renderer import render
 
 
+def _parse_json_response(text: str) -> dict:
+    cleaned = text.strip()
+    if cleaned.startswith("```") and cleaned.endswith("```"):
+        cleaned = cleaned[3:-3].strip()
+        if cleaned.lower().startswith("json"):
+            cleaned = cleaned[4:].lstrip()
+    return json.loads(cleaned)
+
+
 def _extract_chapter_beats(outline_text: str, chapter_index: int) -> str:
     """Naively slices the outline markdown around the chapter heading; a
     more robust structured-outline parser can replace this without touching
@@ -26,7 +35,7 @@ def _extract_chapter_beats(outline_text: str, chapter_index: int) -> str:
 
 
 def draft_chapter(layout: ProjectLayout, llm: LLMProvider, chapter_index: int,
-                   revision_brief: str = "", force: bool = False) -> str:
+                   revision_brief: str = "", force: bool = False, iteration: int = 0) -> dict:
     cfg = layout.config.project
     outline = layout.read(layout.outline_path)
     prompt = render(
@@ -44,7 +53,9 @@ def draft_chapter(layout: ProjectLayout, llm: LLMProvider, chapter_index: int,
     )
     result = llm.complete(system_prompt="You are a novelist ghostwriter.", user_prompt=prompt, role="writer")
     layout.write_guarded(layout.chapter_path(chapter_index), result.text, force=force)
-    return result.text
+    return {"text": result.text, "prompt": prompt, "system_prompt": "You are a novelist ghostwriter.",
+            "writer": {"provider": result.provider, "model": result.model,
+                        "fallback": getattr(result, "fallback", False)}}
 
 
 def evaluate_chapter(layout: ProjectLayout, llm: LLMProvider, chapter_index: int) -> dict:
@@ -58,6 +69,9 @@ def evaluate_chapter(layout: ProjectLayout, llm: LLMProvider, chapter_index: int
     )
     result = llm.complete(system_prompt="You are an independent literary evaluator.", user_prompt=prompt, role="evaluator")
     try:
-        return json.loads(result.text)
+        parsed = _parse_json_response(result.text)
+        parsed["_evaluator"] = {"provider": result.provider, "model": result.model}
+        return parsed
     except json.JSONDecodeError:
-        return {"score": 0.0, "issues": [result.text]}
+        return {"score": 0.0, "issues": [result.text], "raw": result.text,
+                "_evaluator": {"provider": result.provider, "model": result.model}}

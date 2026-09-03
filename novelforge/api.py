@@ -48,6 +48,7 @@ def _run_params(layout: ProjectLayout) -> dict:
         "project.chapters_total": cfg.project.chapters_total,
         "project.chapter_length_words": cfg.project.chapter_length_words,
         "thresholds.foundation_score": cfg.thresholds.foundation_score,
+        "thresholds.foundation_max_iterations": cfg.thresholds.foundation_max_iterations,
         "thresholds.chapter_score": cfg.thresholds.chapter_score,
         "thresholds.revision_max_cycles": cfg.thresholds.revision_max_cycles,
         "thresholds.revision_plateau_delta": cfg.thresholds.revision_plateau_delta,
@@ -55,6 +56,7 @@ def _run_params(layout: ProjectLayout) -> dict:
         "logging.console_verbosity": cfg.logging.console_verbosity,
         "logging.log_to_file": cfg.logging.log_to_file,
         "logging.log_file_path": cfg.logging.log_file_path if cfg.logging.log_to_file else "n/a",
+        "logging.log_evaluate": cfg.logging.log_evaluate,
     }
     params.update(_role_params_table(layout))
     return params
@@ -76,34 +78,33 @@ def get_status(project_dir: str) -> tuple:
 
 def run_foundation(project_dir: str, force: bool = False, verbosity_override: str | None = None) -> dict:
     layout, llm, reporter = _layout_llm_reporter(project_dir, verbosity_override)
+    ps = layout.pipeline_state()
+    ps.foundation_layer_scores = {}
+    ps.foundation_score = None
+    ps.save(layout.pipeline_state_path)
     reporter.run_banner("stage: foundation", project_dir, _run_params(layout), layout.project_token_usage())
     reporter.stage_start("foundation", graph_name="foundation_graph")
     graph = build_foundation_graph()
-    initial = {"layout": layout, "llm": llm, "reporter": reporter, "feedback": "", "weak_layer": "world", "score": 0.0, "iterations": 0, "max_iterations": 8}
+    initial = {"layout": layout, "llm": llm, "reporter": reporter, "layer": "world", "stop_layer": None, "force": force, "feedback": "", "score": 0.0, "best_score": -1.0, "iterations": 0, "max_iterations": layout.config.thresholds.foundation_max_iterations, "candidate": "", "candidate_path": "", "candidate_locked": False, "generation_prompt": "", "generation_system_prompt": "", "generation_writer": {}}
     final_state = _stream_graph(graph, initial, reporter, recursion_limit=200)
     ps = layout.pipeline_state()
     ps.phase = "draft"
     ps.save(layout.pipeline_state_path)
     reporter.stage_end("foundation", llm=llm)
     _persist_run_tokens(layout, llm, reporter)
-    return {"foundation_score": final_state["score"]}
+    return {"foundation_score": layout.pipeline_state().foundation_score, "foundation_layer_scores": layout.pipeline_state().foundation_layer_scores}
 
 
 def run_foundation_single(project_dir: str, layer: str, force: bool = False, verbosity_override: str | None = None) -> str:
     layout, llm, reporter = _layout_llm_reporter(project_dir, verbosity_override)
     reporter.run_banner(f"stage: foundation.{layer}", project_dir, _run_params(layout), layout.project_token_usage())
-    reporter.stage_start(f"foundation.{layer}", graph_name="direct-call")
-    dispatch = {"world": F.gen_world, "characters": F.gen_characters, "outline": F.gen_outline, "canon": F.gen_canon, "voice": F.voice_fingerprint}
-    if layer not in dispatch:
-        raise ValueError(f"Unknown foundation layer: {layer}")
-    reporter.node(f"gen_{layer}")
-    fn = dispatch[layer]
-    result = fn(layout, llm, force=force) if layer in ("canon", "voice") else fn(layout, llm, feedback="", force=force)
-    if isinstance(result, dict) and "path" in result:
-        reporter.artifact(result["path"], "created/updated" if result["written"] else "skipped (human-edited)")
+    reporter.stage_start(f"foundation.{layer}", graph_name="foundation_graph")
+    graph = build_foundation_graph(start_layer=layer)
+    initial = {"layout": layout, "llm": llm, "reporter": reporter, "layer": layer, "stop_layer": layer, "force": force, "feedback": "", "score": 0.0, "best_score": -1.0, "iterations": 0, "max_iterations": layout.config.thresholds.foundation_max_iterations, "candidate": "", "candidate_path": "", "candidate_locked": False, "generation_prompt": "", "generation_system_prompt": "", "generation_writer": {}}
+    final_state = _stream_graph(graph, initial, reporter, recursion_limit=200)
     reporter.stage_end(f"foundation.{layer}", llm=llm)
     _persist_run_tokens(layout, llm, reporter)
-    return result["content"] if isinstance(result, dict) else result
+    return final_state.get("candidate", "")
 
 
 def run_draft(project_dir: str, from_chapter: int = 1, to_chapter: int | None = None, verbosity_override: str | None = None) -> dict:
@@ -112,7 +113,7 @@ def run_draft(project_dir: str, from_chapter: int = 1, to_chapter: int | None = 
     reporter.stage_start("draft", graph_name="drafting_graph")
     last = to_chapter or layout.config.project.chapters_total
     graph = build_drafting_graph()
-    initial = {"layout": layout, "llm": llm, "reporter": reporter, "current_chapter": from_chapter, "last_chapter": last, "retries": 0, "max_retries": layout.config.thresholds.max_draft_retries, "score": 0.0}
+    initial = {"layout": layout, "llm": llm, "reporter": reporter, "current_chapter": from_chapter, "last_chapter": last, "retries": 0, "max_retries": layout.config.thresholds.max_draft_retries, "score": 0.0, "best_score": -1.0, "best_text": "", "best_iteration": -1, "draft_result": {}}
     final_state = _stream_graph(graph, initial, reporter, recursion_limit=500)
     reporter.stage_end("draft", llm=llm)
     _persist_run_tokens(layout, llm, reporter)

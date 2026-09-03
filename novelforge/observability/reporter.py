@@ -95,6 +95,13 @@ class PipelineReporter:
         else:
             self._emit(f"    [white]score {label}:[/white] {value:.2f}")
 
+    def feedback(self, text: str, log_evaluate: bool = False) -> None:
+        short = " ".join(text.split())[:240]
+        if log_evaluate:
+            self._emit(f"    [dim]feedback:[/dim] {short}")
+        else:
+            self._emit_verbose(f"      [dim]feedback:[/dim] {short}")
+
     def role_call(self, role: str, provider: str, model: str, fallback: bool = False) -> None:
         prefix = "fallback" if fallback else "role"
         self._emit(f"    [cyan]{prefix}:[/cyan] {role} -> {provider} / {model}")

@@ -47,6 +47,7 @@ llm:
 
 thresholds:
   foundation_score: 7.5
+  foundation_max_iterations: 8
   lore_score: 7.0
   chapter_score: 6.0
   max_draft_retries: 5
@@ -73,3 +74,4 @@ logging:
   console_verbosity: normal
   log_to_file: false
   log_file_path: logs/run.log
+  log_evaluate: true

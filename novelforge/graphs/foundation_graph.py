@@ -1,125 +1,178 @@
-"""
-Foundation-loop graph: world -> characters -> outline -> canon -> voice ->
-evaluate, looping back to regenerate only the weakest layer until the
-foundation score clears the configured threshold (or iterations run out).
-"""
+"""Sequential per-layer foundation generation and evaluation graph."""
 from __future__ import annotations
+
 from typing import TypedDict
-from langgraph.graph import StateGraph, END
-from novelforge.project import ProjectLayout
+
+from langgraph.graph import END, StateGraph
+
 from novelforge.llm.provider import LLMProvider
 from novelforge.observability.reporter import PipelineReporter
+from novelforge.project import ProjectLayout
 from novelforge.tools import foundation as T
+from novelforge.observability.evaluation_logs import write_attempt_snapshot
+
+
+LAYERS = ("world", "characters", "outline", "canon", "voice")
+GENERATORS = {
+    "world": T.gen_world,
+    "characters": T.gen_characters,
+    "outline": T.gen_outline,
+    "canon": T.gen_canon,
+    "voice": T.voice_fingerprint,
+}
+PATHS = {
+    "world": "world_path",
+    "characters": "characters_path",
+    "outline": "outline_path",
+    "canon": "canon_path",
+    "voice": "voice_path",
+}
 
 
 class FoundationState(TypedDict):
     layout: ProjectLayout
     llm: LLMProvider
     reporter: PipelineReporter
+    layer: str
+    stop_layer: str | None
+    force: bool
     feedback: str
-    weak_layer: str
     score: float
+    best_score: float
     iterations: int
     max_iterations: int
+    candidate: str
+    candidate_path: str
+    candidate_locked: bool
+    generation_prompt: str
+    generation_system_prompt: str
+    generation_writer: dict
 
 
-def _report_artifact(reporter: PipelineReporter, result: dict) -> None:
-    reporter.artifact(result["path"], "created/updated" if result["written"] else "skipped (human-edited)")
-
-
-def _should_regenerate(state: FoundationState, layer: str) -> bool:
-    return state["iterations"] == 0 or state["weak_layer"] == layer
-
-
-def _node_world(state: FoundationState) -> FoundationState:
-    state["reporter"].node("gen_world")
-    if _should_regenerate(state, "world"):
-        result = T.gen_world(state["layout"], state["llm"], feedback=state["feedback"])
-        _report_artifact(state["reporter"], result)
+def _node_generate(state: FoundationState, layer: str) -> FoundationState:
+    if state["layer"] != layer:
+        state["layer"] = layer
+        state["feedback"] = ""
+        state["best_score"] = -1.0
+        state["iterations"] = 0
+        state["candidate_locked"] = False
+        state["generation_prompt"] = ""
+        state["generation_system_prompt"] = ""
+        state["generation_writer"] = {}
+    state["reporter"].node(f"gen_{layer}")
+    layout = state["layout"]
+    path = getattr(layout, PATHS[layer])
+    manifest = layout.manifest()
+    if manifest.is_human_edited(str(path.relative_to(layout.root)), layout.root) and not state["force"]:
+        state["candidate"] = layout.read(path)
+        state["candidate_locked"] = True
+        state["candidate_path"] = str(path.relative_to(layout.root))
+        state["reporter"].artifact(state["candidate_path"], "skipped (human-edited)")
+    else:
+        result = GENERATORS[layer](layout, state["llm"], feedback=state["feedback"], force=state["force"])
+        state["candidate"] = result["content"]
+        state["candidate_path"] = result["path"]
+        state["candidate_locked"] = False
+        state["generation_prompt"] = result.get("prompt", "")
+        state["generation_system_prompt"] = result.get("system_prompt", "")
+        state["generation_writer"] = result.get("writer", {})
     state["reporter"].token_usage(state["llm"])
     return state
 
 
-def _node_characters(state: FoundationState) -> FoundationState:
-    state["reporter"].node("gen_characters")
-    if _should_regenerate(state, "characters"):
-        result = T.gen_characters(state["layout"], state["llm"], feedback=state["feedback"])
-        _report_artifact(state["reporter"], result)
-    state["reporter"].token_usage(state["llm"])
-    return state
+def _write_evaluation_log(state: FoundationState, result: dict, accepted: bool) -> None:
+    if not state["layout"].config.logging.log_evaluate:
+        return
+    layer = state["layer"]
+    directory = state["layout"].logs_dir / "foundation" / layer
+    iteration = state["iterations"]
+    write_attempt_snapshot(
+        directory,
+        iteration,
+        request=(f"System: {state['generation_system_prompt']}\n\n{state['generation_prompt']}"
+                 if state["generation_prompt"] else None),
+        content=state["candidate"],
+        metadata={
+            "layer": layer,
+            "iteration": iteration,
+            "score": state["score"],
+            "threshold": state["layout"].config.thresholds.foundation_score,
+            "accepted": accepted,
+            "best_so_far": state["best_score"],
+            "feedback": result.get("feedback", ""),
+            "writer": state["generation_writer"],
+        },
+    )
 
 
-def _node_outline(state: FoundationState) -> FoundationState:
-    state["reporter"].node("gen_outline")
-    if _should_regenerate(state, "outline"):
-        result = T.gen_outline(state["layout"], state["llm"], feedback=state["feedback"])
-        _report_artifact(state["reporter"], result)
-    state["reporter"].token_usage(state["llm"])
-    return state
-
-
-def _node_canon(state: FoundationState) -> FoundationState:
-    state["reporter"].node("gen_canon")
-    if _should_regenerate(state, "canon"):
-        result = T.gen_canon(state["layout"], state["llm"], feedback=state["feedback"])
-        _report_artifact(state["reporter"], result)
-    state["reporter"].token_usage(state["llm"])
-    return state
-
-
-def _node_voice(state: FoundationState) -> FoundationState:
-    state["reporter"].node("voice_fingerprint")
-    if _should_regenerate(state, "voice"):
-        result = T.voice_fingerprint(state["layout"], state["llm"], feedback=state["feedback"])
-        _report_artifact(state["reporter"], result)
-    state["reporter"].token_usage(state["llm"])
-    return state
-
-
-def _node_evaluate(state: FoundationState) -> FoundationState:
-    state["reporter"].node("evaluate_foundation")
-    result = T.evaluate_foundation(state["layout"], state["llm"])
-    state["score"] = float(result.get("foundation_score", 0.0))
-    state["weak_layer"] = result.get("weak_layer", "world")
-    state["feedback"] = result.get("feedback", "")
+def _node_evaluate(state: FoundationState, layer: str) -> FoundationState:
+    state["reporter"].node(f"evaluate_{layer}")
+    state["layer"] = layer
     state["iterations"] += 1
-
+    if state["candidate_locked"]:
+        result = {"layer_score": state["best_score"] if state["best_score"] >= 0 else 0.0, "feedback": "live artifact is human-edited"}
+    else:
+        result = T.evaluate_foundation_layer(layout=state["layout"], llm=state["llm"], layer=layer, content=state["candidate"])
+    state["score"] = float(result.get("layer_score", 0.0))
     threshold = state["layout"].config.thresholds.foundation_score
-    state["reporter"].cycle("Foundation iteration", state["iterations"], state["max_iterations"])
-    state["reporter"].score("foundation_score", state["score"], threshold)
+    accepted = not state["candidate_locked"] and (state["best_score"] < 0 or state["score"] > state["best_score"])
+    if accepted:
+        written = state["layout"].write_guarded(state["layout"].root / state["candidate_path"], state["candidate"], force=state["force"])
+        if written:
+            state["best_score"] = state["score"]
+            state["reporter"].artifact(state["candidate_path"], "created/updated")
+        else:
+            state["candidate_locked"] = True
+            accepted = False
+            state["reporter"].artifact(state["candidate_path"], "skipped (human-edited)")
+    state["feedback"] = result.get("feedback", "")
+    state["reporter"].cycle(f"Foundation {layer}", state["iterations"], state["max_iterations"])
+    state["reporter"].score(f"{layer}_score", state["score"], threshold)
+    state["reporter"].feedback(state["feedback"], state["layout"].config.logging.log_evaluate)
+    _write_evaluation_log(state, result, accepted)
     state["reporter"].token_usage(state["llm"])
 
     ps = state["layout"].pipeline_state()
-    ps.foundation_score = state["score"]
+    ps.foundation_layer_scores[layer] = state["best_score"] if state["best_score"] >= 0 else state["score"]
+    ps.foundation_score = min(ps.foundation_layer_scores.values()) if ps.foundation_layer_scores else state["score"]
     ps.save(state["layout"].pipeline_state_path)
     return state
 
 
+def _make_generate(layer):
+    return lambda state: _node_generate(state, layer)
+
+
+def _make_evaluate(layer):
+    return lambda state: _node_evaluate(state, layer)
+
+
 def _route_after_evaluate(state: FoundationState) -> str:
+    layer = state["layer"]
     threshold = state["layout"].config.thresholds.foundation_score
-    if state["score"] >= threshold:
-        state["reporter"].router("after_evaluate", "END", reason=f"score {state['score']:.2f} >= threshold {threshold:.2f}")
+    next_layer = LAYERS[LAYERS.index(layer) + 1] if layer != LAYERS[-1] else END
+    should_stop = state["score"] >= threshold or state["iterations"] >= state["max_iterations"] or state["candidate_locked"]
+    if should_stop and state["stop_layer"] == layer:
+        state["reporter"].router("after_evaluate", END, reason=f"single-layer run completed: {layer}")
         return END
-    if state["iterations"] >= state["max_iterations"]:
-        state["reporter"].router("after_evaluate", "END", reason=f"max_iterations {state['max_iterations']} reached")
-        return END
-    state["reporter"].router("after_evaluate", "world", reason=f"weakest layer: {state['weak_layer']}")
-    return "world"
+    if should_stop:
+        state["reporter"].router("after_evaluate", str(next_layer), reason=f"{layer} accepted/budget/locked")
+        return next_layer
+    state["reporter"].router("after_evaluate", layer, reason=f"{layer} rejected; retrying")
+    return layer
 
 
-def build_foundation_graph():
-    g = StateGraph(FoundationState)
-    g.add_node("world", _node_world)
-    g.add_node("characters", _node_characters)
-    g.add_node("outline", _node_outline)
-    g.add_node("canon", _node_canon)
-    g.add_node("voice", _node_voice)
-    g.add_node("evaluate", _node_evaluate)
-    g.set_entry_point("world")
-    g.add_edge("world", "characters")
-    g.add_edge("characters", "outline")
-    g.add_edge("outline", "canon")
-    g.add_edge("canon", "voice")
-    g.add_edge("voice", "evaluate")
-    g.add_conditional_edges("evaluate", _route_after_evaluate, {"world": "world", END: END})
-    return g.compile()
+def build_foundation_graph(start_layer: str = "world"):
+    if start_layer not in LAYERS:
+        raise ValueError(f"Unknown foundation layer: {start_layer}")
+    graph = StateGraph(FoundationState)
+    for layer in LAYERS:
+        graph.add_node(layer, _make_generate(layer))
+        graph.add_node(f"eval_{layer}", _make_evaluate(layer))
+        graph.add_edge(layer, f"eval_{layer}")
+    graph.set_entry_point(start_layer)
+    destinations = {layer: layer for layer in LAYERS}
+    destinations[END] = END
+    for layer in LAYERS:
+        graph.add_conditional_edges(f"eval_{layer}", _route_after_evaluate, destinations)
+    return graph.compile()

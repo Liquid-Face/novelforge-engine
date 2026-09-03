@@ -56,6 +56,7 @@ class LLMConfig(BaseModel):
 
 class ThresholdsConfig(BaseModel):
     foundation_score: float = 7.5
+    foundation_max_iterations: int = 8
     lore_score: float = 7.0
     chapter_score: float = 6.0
     max_draft_retries: int = 5
@@ -98,6 +99,7 @@ class LoggingConfig(BaseModel):
     console_verbosity: Literal["quiet", "normal", "verbose"] = "normal"
     log_to_file: bool = False
     log_file_path: str = "logs/run.log"
+    log_evaluate: bool = True
 
 
 class ProjectConfig(BaseModel):

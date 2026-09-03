@@ -32,7 +32,7 @@
 
 - `LLMProvider.complete(..., role=...)` is the stable boundary used by tools; endpoint selection, client reuse, fallback on OpenAI API/timeout/connection errors, and per-run token accumulation belong inside `novelforge/llm/provider.py`.
 - Graph nodes inject `PipelineReporter` and stream through `graph.stream(..., stream_mode="values")`; keep observability in the reporter/API/graph boundary rather than printing from tools.
-- Foundation regenerates the evaluator-selected weakest layer until the configured score threshold or iteration limit. Draft retries a chapter until its score passes the threshold or retry limit, then advances and rebuilds the arc summary.
+- Foundation evaluates each layer independently in sequence, retaining only the best candidate until the configured score threshold or per-layer iteration limit. Evaluation attempts can be logged with `logging.log_evaluate`; draft retries a chapter until its score passes the threshold or retry limit, then advances and rebuilds the arc summary. Draft attempts and writer requests are logged under `logs/draft/ch_NN/`, and an exhausted budget restores the best-scoring attempt.
 - Revision stops at the configured cycle limit or score plateau. Review stops at the configured actionable-item limit or round limit. These are configuration values, not constants to duplicate in code.
 - Export creates `export/novel.tex`, optionally compiles PDF with the configured engine or `pdflatex` fallback, and creates EPUB3 without an external EPUB dependency; there are no image or audiobook stages.
 - When documentation conflicts with executable code, follow `pyproject.toml`, the CLI/API, and `templates/project/project.yaml`; use `CHANGES.md` to preserve the role-first configuration and observability behavior.

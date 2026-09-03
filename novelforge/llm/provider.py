@@ -21,6 +21,7 @@ class LLMResult:
     usage: dict
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    fallback: bool = False
 
 
 @dataclass
@@ -100,6 +101,7 @@ class LLMProvider:
             usage=usage,
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
+            fallback=is_fallback,
         )
 
     def complete(
@@ -119,6 +121,6 @@ class LLMProvider:
             logger.warning("Primary endpoint for role '%s' failed (%s); using fallback.", role, exc)
             if self._reporter:
                 self._reporter.warning(
-                    f"Primary endpoint failed for role '{role}' ({role_config.primary.provider} / {role_config.primary.model}); using fallback."
+                    f"Primary endpoint failed for role '{role}' ({role_config.primary.provider} / {role_config.primary.model}): {exc}; using fallback."
                 )
             return self._call(role_config.fallback, system_prompt, user_prompt, temperature, max_tokens, role, is_fallback=True)
