@@ -1,3 +1,4 @@
+
 # NovelForge Engine
 
 Provider-agnostic, text-only autonomous novel-writing pipeline engine, built
@@ -32,17 +33,15 @@ AITUNNEL API aggregator.
 ```bash
 pip install -e .
 ```
-
 ИЛИ
 
-Установить как глобальный инструмент через uv
+установить как глобальный инструмент через uv
+
 ```bash
 cd ~/AI/novelforge-engine
 uv tool install -e .
 ```
-
-Ключевое отличие от "uv pip install -e .": uv tool install не кладёт пакет в venv конкретного проекта, а создаёт отдельное изолированное окружение специально для инструмента и линкует его исполняемый файл в ~/.local/bin/novelforge (или ~/.cargo/bin в зависимости от настроек uv), который автоматически попадает в PATH. Далее в терминала novelforge работает как команда.
-
+Это ключевое отличие от uv pip install -e .: uv tool install не кладёт пакет в venv конкретного проекта, а создаёт отдельное изолированное окружение специально для инструмента и линкует его исполняемый файл в ~/.local/bin/novelforge (или ~/.cargo/bin в зависимости от настроек uv), который автоматически попадает в PATH. После такой установки модно использовать novelforge как команду в терминале в любой папке.
 
 ## Quick start
 

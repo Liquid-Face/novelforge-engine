@@ -7,21 +7,45 @@ project:
   chapter_length_words: [2200, 3200]
   total_length_words_target: 70000
 
+# LLM routing is role-first: each role has its own primary endpoint and an
+# optional fallback endpoint. Any role can use a local or a cloud model --
+# this example shows one possible mix, not a fixed rule. Ollama and AITUNNEL
+# both expose an OpenAI-compatible API, so any endpoint below can point at
+# either (or any other OpenAI-compatible service) without code changes.
 llm:
-  provider: ollama
-  base_url: "http://localhost:11434/v1"
-  api_key_env: null
-  models:
-    writer: "qwen2.5:32b"
-    evaluator: "qwen2.5:32b"
-    reviewer: "qwen2.5:32b"
-  fallback_provider: aitunnel
-  fallback_base_url: "https://api.aitunnel.ru/v1"
-  fallback_api_key_env: AITUNNEL_API_KEY
-  fallback_models:
-    writer: "claude-sonnet-4.6"
-    evaluator: "gpt-5.6-sol"
-    reviewer: "gemini-3.7-flash"
+  roles:
+    writer:
+      primary:
+        provider: ollama
+        base_url: "http://localhost:11434/v1"
+        model: "qwen2.5:32b"
+      fallback:
+        provider: aitunnel
+        base_url: "https://api.aitunnel.ru/v1"
+        model: "claude-sonnet-4.6"
+        api_key_env: AITUNNEL_API_KEY
+    evaluator:
+      primary:
+        provider: aitunnel
+        base_url: "https://api.aitunnel.ru/v1"
+        model: "gpt-5.6-sol"
+        api_key_env: AITUNNEL_API_KEY
+      fallback:
+        provider: aitunnel
+        base_url: "https://api.aitunnel.ru/v1"
+        model: "gemini-3.7-flash"
+        api_key_env: AITUNNEL_API_KEY
+    reviewer:
+      primary:
+        provider: aitunnel
+        base_url: "https://api.aitunnel.ru/v1"
+        model: "gemini-3.7-flash"
+        api_key_env: AITUNNEL_API_KEY
+      fallback:
+        provider: aitunnel
+        base_url: "https://api.aitunnel.ru/v1"
+        model: "gpt-5.6-sol"
+        api_key_env: AITUNNEL_API_KEY
   temperature: 0.9
   max_tokens: 4096
   request_timeout_s: 180

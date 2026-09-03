@@ -1,5 +1,11 @@
 """
-Provider-agnostic LLM access layer.
+Role-first, provider-agnostic LLM access layer.
+
+Every pipeline role (writer/evaluator/reviewer) owns its own primary
+endpoint and an optional fallback endpoint (see novelforge.config.RoleConfig).
+This lets each role be routed independently -- e.g. a small local Ollama
+model for drafting while evaluator/reviewer use a large-context cloud model
+via AITUNNEL -- with its own independent failover target.
 
 Both Ollama (http://localhost:11434/v1) and AITUNNEL (https://api.aitunnel.ru/v1)
 expose an OpenAI-compatible Chat Completions API, so a single adapter covers
@@ -10,14 +16,11 @@ from __future__ import annotations
 import os
 import logging
 from dataclasses import dataclass
-from typing import Optional
 from openai import OpenAI, APIError, APITimeoutError, APIConnectionError
 
-from novelforge.config import LLMConfig, LLMRoleModels
+from novelforge.config import LLMConfig, EndpointConfig, RoleName
 
 logger = logging.getLogger("novelforge.llm")
-
-Role = str  # "writer" | "evaluator" | "reviewer"
 
 
 @dataclass
@@ -29,79 +32,61 @@ class LLMResult:
 
 
 class LLMProvider:
-    """Single interface used by every tool in the pipeline."""
+    """Single interface used by every tool in the pipeline. Resolves the
+    correct endpoint for a given role and transparently fails over to that
+    role's fallback endpoint (if configured) on error."""
 
     def __init__(self, config: LLMConfig):
         self._config = config
-        self._primary = self._build_client(
-            config.base_url, config.api_key_env, config.provider
+        self._clients: dict[tuple[str, str | None], OpenAI] = {}
+
+    def _client_for(self, endpoint: EndpointConfig) -> OpenAI:
+        """Lazily builds and caches one OpenAI client per unique
+        (base_url, api_key_env) pair, so roles sharing an endpoint reuse it."""
+        key = (endpoint.base_url, endpoint.api_key_env)
+        if key not in self._clients:
+            api_key = os.environ.get(endpoint.api_key_env, "not-needed") if endpoint.api_key_env else "not-needed"
+            self._clients[key] = OpenAI(base_url=endpoint.base_url, api_key=api_key)
+        return self._clients[key]
+
+    def _call(self, endpoint: EndpointConfig, system_prompt: str, user_prompt: str,
+               temperature: float | None, max_tokens: int | None) -> LLMResult:
+        client = self._client_for(endpoint)
+        temp, mtok, timeout = self._config.resolved_defaults_for(endpoint)
+        temp = temperature if temperature is not None else temp
+        mtok = max_tokens if max_tokens is not None else mtok
+        resp = client.chat.completions.create(
+            model=endpoint.model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=temp,
+            max_tokens=mtok,
+            timeout=timeout,
         )
-        self._primary_models = config.models
-        self._fallback = None
-        self._fallback_models = None
-        if config.fallback_provider and config.fallback_base_url:
-            self._fallback = self._build_client(
-                config.fallback_base_url,
-                config.fallback_api_key_env,
-                config.fallback_provider,
-            )
-            self._fallback_models = config.fallback_models or config.models
-
-    @staticmethod
-    def _build_client(base_url: str, api_key_env: Optional[str], provider_name: str) -> OpenAI:
-        api_key = os.environ.get(api_key_env, "not-needed") if api_key_env else "not-needed"
-        return OpenAI(base_url=base_url, api_key=api_key)
-
-    def _model_for(self, role: Role, models: LLMRoleModels) -> str:
-        return getattr(models, role)
+        return LLMResult(
+            text=resp.choices[0].message.content or "",
+            model=endpoint.model,
+            provider=endpoint.provider,
+            usage=dict(resp.usage) if resp.usage else {},
+        )
 
     def complete(
         self,
         system_prompt: str,
         user_prompt: str,
-        role: Role = "writer",
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
+        role: RoleName = "writer",
+        temperature: float | None = None,
+        max_tokens: int | None = None,
     ) -> LLMResult:
-        """Run a chat completion using the role-mapped model, with automatic
-        failover to the configured fallback provider on error."""
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ]
-        temp = temperature if temperature is not None else self._config.temperature
-        mtok = max_tokens if max_tokens is not None else self._config.max_tokens
-
+        """Runs a chat completion using the endpoint configured for `role`,
+        with automatic failover to that role's fallback endpoint on error."""
+        role_config = self._config.roles[role]
         try:
-            model = self._model_for(role, self._primary_models)
-            resp = self._primary.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=temp,
-                max_tokens=mtok,
-                timeout=self._config.request_timeout_s,
-            )
-            return LLMResult(
-                text=resp.choices[0].message.content or "",
-                model=model,
-                provider=self._config.provider,
-                usage=dict(resp.usage) if resp.usage else {},
-            )
+            return self._call(role_config.primary, system_prompt, user_prompt, temperature, max_tokens)
         except (APIError, APITimeoutError, APIConnectionError) as exc:
-            logger.warning("Primary provider failed (%s); attempting fallback.", exc)
-            if not self._fallback:
+            if not role_config.fallback:
                 raise
-            model = self._model_for(role, self._fallback_models)
-            resp = self._fallback.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=temp,
-                max_tokens=mtok,
-                timeout=self._config.request_timeout_s,
-            )
-            return LLMResult(
-                text=resp.choices[0].message.content or "",
-                model=model,
-                provider=self._config.fallback_provider or "fallback",
-                usage=dict(resp.usage) if resp.usage else {},
-            )
+            logger.warning("Primary endpoint for role '%s' failed (%s); using fallback.", role, exc)
+            return self._call(role_config.fallback, system_prompt, user_prompt, temperature, max_tokens)

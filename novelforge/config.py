@@ -2,32 +2,69 @@
 Project configuration schema. This is the ONLY place non-lore, production
 parameters live (chapter count, genre, thresholds, model routing). Nothing
 about the actual story world/characters is defined here.
+
+LLM configuration is role-first: each role (writer/evaluator/reviewer) owns
+its own primary endpoint and an optional fallback endpoint. This allows any
+role to be routed to any provider independently -- e.g. a small local Ollama
+model for drafting, while evaluator/reviewer use a large-context cloud model,
+each with its own independent failover target. Providers are never assumed
+to be "local" or "cloud"; that is just how a given endpoint happens to be
+configured by the user.
 """
 from __future__ import annotations
 from pathlib import Path
 from typing import Literal, Optional
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+ProviderKind = Literal["ollama", "aitunnel", "openai_compatible"]
+RoleName = Literal["writer", "evaluator", "reviewer"]
+
+REQUIRED_ROLES: tuple[RoleName, ...] = ("writer", "evaluator", "reviewer")
 
 
-class LLMRoleModels(BaseModel):
-    writer: str
-    evaluator: str
-    reviewer: str
+class EndpointConfig(BaseModel):
+    """A single addressable LLM backend: a provider label, its OpenAI-compatible
+    base URL, the model name to request, and optional generation overrides."""
+    provider: ProviderKind
+    base_url: str
+    model: str
+    api_key_env: Optional[str] = None
+    temperature: Optional[float] = None
+    max_tokens: Optional[int] = None
+    request_timeout_s: Optional[int] = None
+
+
+class RoleConfig(BaseModel):
+    """Routing for one pipeline role: a required primary endpoint and an
+    optional fallback endpoint used only if the primary call fails."""
+    primary: EndpointConfig
+    fallback: Optional[EndpointConfig] = None
 
 
 class LLMConfig(BaseModel):
-    provider: Literal["aitunnel", "ollama", "openai_compatible"] = "ollama"
-    base_url: str = "http://localhost:11434/v1"
-    api_key_env: Optional[str] = None
-    models: LLMRoleModels
-    fallback_provider: Optional[Literal["aitunnel", "ollama", "openai_compatible"]] = None
-    fallback_base_url: Optional[str] = None
-    fallback_api_key_env: Optional[str] = None
-    fallback_models: Optional[LLMRoleModels] = None
+    """Role-first LLM configuration. Defaults below apply to any endpoint
+    that does not override temperature/max_tokens/request_timeout_s itself."""
+    roles: dict[RoleName, RoleConfig]
     temperature: float = 0.9
     max_tokens: int = 4096
     request_timeout_s: int = 180
+
+    @model_validator(mode="after")
+    def _check_required_roles(self) -> "LLMConfig":
+        missing = [r for r in REQUIRED_ROLES if r not in self.roles]
+        if missing:
+            raise ValueError(f"llm.roles is missing required role(s): {missing}")
+        return self
+
+    def resolved_defaults_for(self, endpoint: EndpointConfig) -> tuple[float, int, int]:
+        """Effective (temperature, max_tokens, request_timeout_s) for an
+        endpoint, falling back to the pipeline-wide defaults."""
+        return (
+            endpoint.temperature if endpoint.temperature is not None else self.temperature,
+            endpoint.max_tokens if endpoint.max_tokens is not None else self.max_tokens,
+            endpoint.request_timeout_s if endpoint.request_timeout_s is not None else self.request_timeout_s,
+        )
 
 
 class ThresholdsConfig(BaseModel):
