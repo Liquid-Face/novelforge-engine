@@ -33,6 +33,12 @@ AITUNNEL API aggregator.
 pip install -e .
 ```
 
+OR
+
+```bash
+uv tool install -e .
+```
+
 ## Quick start
 
 ```bash
