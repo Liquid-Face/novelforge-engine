@@ -3,6 +3,7 @@
 ## Repository Scope
 
 - This repository is the Python engine only; novel data belongs in a separate `--project-dir` created from `templates/project/`, not in the engine tree.
+- The canonical repository is https://github.com/Liquid-Face/novelforge-engine. Install the CLI from GitHub with `pipx`/`uv tool`, or clone it and use `pip install -e .`.
 - The runtime entrypoints are the `novelforge` console script (`novelforge.cli:app`) and the orchestration functions in `novelforge/api.py`; keep CLI logic thin and put pipeline behavior in the API, graphs, or tools.
 - Pipeline phases are Foundation, Draft, Revision, Review, and Export. Graph implementations live in `novelforge/graphs/`; side-effecting stage operations live in `novelforge/tools/`.
 - Prompt text must stay in `novelforge/prompts/templates/*.jinja2` and be rendered through `novelforge.prompts.renderer`; do not embed novel-specific prompts in Python.
@@ -14,7 +15,7 @@
 - Each endpoint is OpenAI-compatible and declares its own `provider`, `base_url`, `model`, and optional `api_key_env`; Ollama normally needs no key, while the template uses `AITUNNEL_API_KEY` for AITUNNEL.
 - Treat `templates/project/project.yaml` as the canonical project-config example. It also defines thresholds, export formats, paths, and logging; do not hardcode those production parameters.
 - A project contains `seed.md`, lore under `manuscript/`, chapters under `manuscript/chapters/`, persistent JSON/token state under `state/`, logs under `logs/`, and exports under `export/`.
-- Generated artifacts go through `ProjectLayout.write_guarded()` and `state/manifest.json`; a changed on-disk hash means a human edit and must not be overwritten unless the caller explicitly passes `--force-regenerate` (CLI: `--force`).
+- Generated artifacts go through `ProjectLayout.write_guarded()` and `state/manifest.json`; a changed on-disk hash means a human edit and must not be overwritten unless the caller explicitly passes `--force-regenerate`.
 - `state/pipeline_state.json` is the human-readable progress summary and `state/token_usage.json` stores cumulative project token totals; `ProjectLayout.checkpoint_db_path` exists, but LangGraph SQLite checkpoint persistence is not currently wired into the API.
 
 ## Commands
@@ -35,7 +36,10 @@
 - Foundation evaluates each layer independently in sequence, retaining only the best candidate until the configured score threshold or per-layer iteration limit. Evaluation attempts can be logged with `logging.log_evaluate`; draft retries a chapter until its score passes the threshold or retry limit, then advances and rebuilds the arc summary. Draft attempts and writer requests are logged under `logs/draft/ch_NN/`, and an exhausted budget restores the best-scoring attempt.
 - Revision stops at the configured cycle limit or score plateau. Review stops at the configured actionable-item limit or round limit. These are configuration values, not constants to duplicate in code.
 - Export creates `export/novel.tex`, optionally compiles PDF with the configured engine or `pdflatex` fallback, and creates EPUB3 without an external EPUB dependency; there are no image or audiobook stages.
+- Export is implemented as direct calls to `build_tex`, `typeset_pdf`, and `build_epub`, not as a StateGraph.
+- Prompt templates live in `novelforge/prompts/templates/` as user/system pairs, including `.system.jinja2` files. Foundation attempts are logged under `logs/foundation/<layer>/`; draft attempts and writer requests are logged under `logs/draft/ch_NN/`.
 - When documentation conflicts with executable code, follow `pyproject.toml`, the CLI/API, and `templates/project/project.yaml`; use `CHANGES.md` to preserve the role-first configuration and observability behavior.
+- The architecture document describes the same current implementation; executable code takes precedence if the documents diverge.
 
 ## Git workflow and versioning
 

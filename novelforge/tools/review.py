@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 from novelforge.project import ProjectLayout
 from novelforge.llm.provider import LLMProvider
-from novelforge.prompts.renderer import render
+from novelforge.prompts.renderer import render_pair
 
 
 def build_full_manuscript(layout: ProjectLayout) -> str:
@@ -21,9 +21,12 @@ def build_full_manuscript(layout: ProjectLayout) -> str:
 
 def review_manuscript(layout: ProjectLayout, llm: LLMProvider) -> dict:
     manuscript = build_full_manuscript(layout)
-    prompt = render("review_manuscript", full_manuscript=manuscript)
+    cfg = layout.config.project
+    system, prompt = render_pair("review_manuscript", full_manuscript=manuscript,
+                                 language=cfg.language, genre=cfg.genre,
+                                 target_audience=cfg.target_audience)
     result = llm.complete(
-        system_prompt="You are a dual-persona literary reviewer (critic + professor of fiction).",
+        system_prompt=system,
         user_prompt=prompt,
         role="reviewer",
         max_tokens=8192,

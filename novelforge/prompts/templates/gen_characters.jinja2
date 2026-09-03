@@ -1,18 +1,22 @@
-Ты — соавтор-разработчик персонажей художественной прозы жанра {{ genre }}.
+GENRE: {{ genre }}
+LANGUAGE: {{ language }}
+AUDIENCE: {{ target_audience }}
 
-Мир романа:
----
+WORLD:
 {{ world }}
----
 
-Сид концепции:
----
+SEED:
 {{ seed }}
----
 
 {% if feedback %}
-Замечания к доработке предыдущей версии реестра персонажей:
+FEEDBACK:
 {{ feedback }}
 {% endif %}
 
-Создай реестр персонажей в формате Markdown: для каждого — имя, роль в сюжете, мотивация, арка изменения, голос/манера речи, отношения с другими персонажами. Пиши на {{ language }}.
+REQUIRED_FIELDS_PER_PRINCIPAL:
+- Name
+- Plot role
+- Motivation
+- Change arc
+- Speech manner
+- Relationships

@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 from novelforge.project import ProjectLayout
 from novelforge.llm.provider import LLMProvider
-from novelforge.prompts.renderer import render
+from novelforge.prompts.renderer import render_pair
 
 DEFAULT_PERSONAS = [
     ("Genre Fan", "заядлый читатель этого жанра, ищущий динамику и напряжение"),
@@ -18,8 +18,10 @@ DEFAULT_PERSONAS = [
 
 def adversarial_edit(layout: ProjectLayout, llm: LLMProvider, chapter_index: int, cut_percent: int = 10) -> list[dict]:
     chapter_text = layout.read(layout.chapter_path(chapter_index))
-    prompt = render("adversarial_edit", chapter_text=chapter_text, cut_percent=cut_percent)
-    result = llm.complete(system_prompt="You are a ruthless prose editor.", user_prompt=prompt, role="evaluator")
+    system, prompt = render_pair("adversarial_edit", chapter_text=chapter_text, cut_percent=cut_percent,
+                                 language=layout.config.project.language, genre=layout.config.project.genre,
+                                 target_audience=layout.config.project.target_audience)
+    result = llm.complete(system_prompt=system, user_prompt=prompt, role="evaluator")
     try:
         return json.loads(result.text)
     except json.JSONDecodeError:
@@ -30,8 +32,11 @@ def reader_panel(layout: ProjectLayout, llm: LLMProvider, chapter_index: int) ->
     chapter_text = layout.read(layout.chapter_path(chapter_index))
     reactions = []
     for name, desc in DEFAULT_PERSONAS:
-        prompt = render("reader_panel", persona_name=name, persona_description=desc, chapter_text=chapter_text)
-        result = llm.complete(system_prompt="You role-play as a reader persona.", user_prompt=prompt, role="evaluator")
+        system, prompt = render_pair("reader_panel", persona_name=name, persona_description=desc,
+                                     chapter_text=chapter_text, language=layout.config.project.language,
+                                     genre=layout.config.project.genre,
+                                     target_audience=layout.config.project.target_audience)
+        result = llm.complete(system_prompt=system, user_prompt=prompt, role="evaluator")
         try:
             reactions.append(json.loads(result.text))
         except json.JSONDecodeError:
@@ -40,8 +45,10 @@ def reader_panel(layout: ProjectLayout, llm: LLMProvider, chapter_index: int) ->
 
 
 def gen_brief(layout: ProjectLayout, llm: LLMProvider, chapter_index: int, feedback_bundle: str, force: bool = False) -> str:
-    prompt = render("gen_brief", chapter_index=chapter_index, feedback_bundle=feedback_bundle)
-    result = llm.complete(system_prompt="You write concise, actionable revision briefs.", user_prompt=prompt, role="evaluator")
+    system, prompt = render_pair("gen_brief", chapter_index=chapter_index, feedback_bundle=feedback_bundle,
+                                 language=layout.config.project.language, genre=layout.config.project.genre,
+                                 target_audience=layout.config.project.target_audience)
+    result = llm.complete(system_prompt=system, user_prompt=prompt, role="evaluator")
     brief_path = layout.briefs_dir / f"brief_ch_{chapter_index:02d}.md"
     layout.write_guarded(brief_path, result.text, force=force)
     return result.text

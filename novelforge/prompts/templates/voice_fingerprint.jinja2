@@ -1,18 +1,22 @@
-Ты — литературный редактор, специализирующийся на авторском голосе.
+GENRE: {{ genre }}
+LANGUAGE: {{ language }}
+AUDIENCE: {{ target_audience }}
 
-Мир романа:
----
+WORLD:
 {{ world }}
----
 
-Сид концепции:
----
+SEED:
 {{ seed }}
----
 
 {% if feedback %}
-Замечания к доработке предыдущей версии голоса:
+FEEDBACK:
 {{ feedback }}
 {% endif %}
 
-Определи и зафиксируй авторский голос романа в формате Markdown: ритм повествования, лексика, длина предложений, соотношение диалогов/описаний, характерные приёмы и то, чего следует избегать. Пиши на {{ language }}.
+REQUIRED_SECTIONS:
+- Rhythm
+- Lexicon
+- Sentence length
+- Dialogue-to-description ratio
+- Devices to use
+- Devices to forbid

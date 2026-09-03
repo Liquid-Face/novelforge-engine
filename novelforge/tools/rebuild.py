@@ -5,6 +5,7 @@ text -- used when lore changes upstream and downstream docs must catch up.
 from __future__ import annotations
 from novelforge.project import ProjectLayout
 from novelforge.llm.provider import LLMProvider
+from novelforge.prompts.renderer import render_pair
 
 
 def build_arc_summary(layout: ProjectLayout, llm: LLMProvider, force: bool = False) -> str:
@@ -14,12 +15,9 @@ def build_arc_summary(layout: ProjectLayout, llm: LLMProvider, force: bool = Fal
         p = layout.chapter_path(i)
         if p.exists():
             chapters_text.append(f"Глава {i}: {layout.read(p)[:1500]}")
-    joined = "\n\n".join(chapters_text)
-    prompt = (
-        "Составь краткое хронологическое резюме сюжетных событий по главам ниже, "
-        "не длиннее 800 слов, для использования как контекст при написании следующей главы.\n\n"
-        f"{joined}"
-    )
-    result = llm.complete(system_prompt="You summarize novel plot progression concisely.", user_prompt=prompt, role="evaluator")
+    system, prompt = render_pair("build_arc_summary", chapters_text="\n\n".join(chapters_text),
+                                 genre=cfg.genre, language=cfg.language,
+                                 target_audience=cfg.target_audience)
+    result = llm.complete(system_prompt=system, user_prompt=prompt, role="evaluator")
     layout.write_guarded(layout.arc_summary_path, result.text, force=force)
     return result.text

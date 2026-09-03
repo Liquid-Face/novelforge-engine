@@ -1,13 +1,19 @@
-Ты — соавтор-разработчик мира художественной прозы жанра {{ genre }}.
+GENRE: {{ genre }}
+LANGUAGE: {{ language }}
+AUDIENCE: {{ target_audience }}
 
-Сид концепции:
----
+SEED:
 {{ seed }}
----
 
 {% if feedback %}
-Замечания к доработке предыдущей версии мира:
+FEEDBACK:
 {{ feedback }}
 {% endif %}
 
-Создай библию мира в формате Markdown: география, история, устройство общества, магическая/технологическая система (если применимо), ключевые фракции, тон и атмосфера. Пиши на {{ language }}.
+REQUIRED_HEADINGS:
+- Geography
+- History
+- Society
+- Power or technology
+- Factions
+- Tone and atmosphere

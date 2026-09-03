@@ -1,51 +1,85 @@
 # NovelForge Engine
 
 Provider-agnostic, text-only autonomous novel-writing pipeline engine, built
-on LangGraph. Inspired by NousResearch/autonovel, with image/audio generation
-removed and all vendor lock-in (Anthropic-only) eliminated in favor of an
-OpenAI-compatible LLM layer that works with both local Ollama and the
-AITUNNEL API aggregator.
+on LangGraph. The current release is `0.2.0`. It is inspired by
+[NousResearch/autonovel](https://github.com/NousResearch/autonovel), but keeps
+the engine separate from each novel project and uses OpenAI-compatible LLM
+endpoints for local Ollama or AITUNNEL deployments.
 
-## Design principles
+Repository: <https://github.com/Liquid-Face/novelforge-engine>
 
-- **Engine/data separation.** This repository contains only code, prompt
-  templates, and LangGraph graphs. Every novel lives in its own project
-  directory, created via `novelforge init --project-dir <path>` from
-  `templates/project/`. The engine never writes into its own repo.
-- **Provider-agnostic LLM access.** `novelforge/llm/provider.py` talks to any
-  OpenAI-compatible Chat Completions endpoint. Swapping Ollama <-> AITUNNEL
-  <-> any other compatible API is a `project.yaml` edit, not a code change.
-- **No prompts hardcoded in scripts.** All prompt text lives under
-  `novelforge/prompts/templates/*.jinja2`, rendered with lore/config
-  variables at call time.
-- **Manual-edit protection.** `novelforge/state/manifest.py` hashes every
-  generated artifact; re-running a stage never silently overwrites a file a
-  human has hand-edited (`--force-regenerate` opts back in).
-- **Stage-level resumability.** Every phase is a LangGraph `StateGraph`; the
-  CLI can run the full pipeline or any single stage/sub-stage.
-- **UI-ready.** `novelforge/api.py` is the single orchestration entry point
-  used by the CLI (`novelforge/cli.py`); a future web/GUI can import the same
-  functions directly.
+## Requirements
+
+- Python 3.10 or newer.
+- For AITUNNEL, an `AITUNNEL_API_KEY` environment variable.
+- For local inference, Ollama available at `http://localhost:11434/v1`.
+- For PDF output, optionally install `tectonic` or `pdflatex`. EPUB output
+  does not require an external EPUB package.
 
 ## Install
 
+All of the following install the `novelforge` console script. PyPI does not
+currently publish a NovelForge package.
+
+### A. Install from GitHub with pipx or uv
+
 ```bash
+pipx install git+https://github.com/Liquid-Face/novelforge-engine.git
+# or
+uv tool install git+https://github.com/Liquid-Face/novelforge-engine.git
+```
+
+These commands are convenient for the CLI. The repository's `init` command
+copies the project template from the source tree, so use the clone + editable
+installation below when the installed package does not include
+`templates/project/`.
+
+### B. Clone and install editable
+
+This is the recommended path for development and for reliable project
+initialization.
+
+```bash
+git clone https://github.com/Liquid-Face/novelforge-engine.git
+cd novelforge-engine
+python3 -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e .
 ```
 
-OR
+Use `novelforge` while the virtual environment is active, or use
+`.venv/bin/novelforge` directly.
+
+### C. Install from Git into the current environment
 
 ```bash
-uv tool install -e .
+pip install git+https://github.com/Liquid-Face/novelforge-engine.git
 ```
 
-## Quick start
+Verify the command:
+
+```bash
+novelforge --help
+```
+
+If the command is not found, update your shell PATH with `pipx ensurepath` or
+`uv tool update-shell`, or activate the virtual environment.
+
+## First novel
+
+Create a project outside the engine repository. The project contains the
+novel data; the engine repository contains code and prompt templates.
 
 ```bash
 novelforge init --project-dir ./my-novel
-cd my-novel
-# edit project.yaml (genre, chapter count, model routing) and seed.md
-novelforge run full --project-dir .
+```
+
+Edit `./my-novel/project.yaml` and `./my-novel/seed.md`. Configure the
+role-first LLM endpoints in `llm.roles`; when using AITUNNEL, set the key:
+
+```bash
+export AITUNNEL_API_KEY=your-key
+novelforge run full --project-dir ./my-novel
 ```
 
 ## Stage-by-stage
@@ -60,17 +94,37 @@ novelforge run stage export --project-dir ./my-novel --formats pdf,epub
 novelforge status --project-dir ./my-novel
 ```
 
+`run stage foundation` accepts `world`, `characters`, `outline`, `canon`, and
+`voice`; a single layer is selected as `foundation.<layer>`. Both `run full`
+and `run stage` accept `--verbosity quiet|normal|verbose`. Only `run stage`
+accepts `--force-regenerate`, which intentionally permits replacing
+human-edited artifacts.
+
 ## Pipeline phases
 
-1. **Foundation** — world, characters, outline, canon, voice; loops on the
-   weakest layer until `foundation_score > 7.5`.
-2. **Draft** — sequential chapter writing; keep if `score > 6.0`, retry
-   otherwise (bounded retries).
-3. **Revision** — adversarial editing -> cuts -> reader panel -> briefs ->
-   rewrite, with plateau detection.
-4. **Review** — dual-persona (critic + professor) full-manuscript review via
-   any configured LLM, iterating until major items are exhausted.
-5. **Export** — LaTeX typesetting (PDF) and a dependency-free EPUB3 build.
-   No art or audiobook steps.
+1. **Foundation** generates and evaluates `world`, `characters`, `outline`,
+   `canon`, and `voice` sequentially. Each layer retries until it reaches the
+   configured `foundation_score` or `foundation_max_iterations` limit.
+2. **Draft** writes chapters sequentially, retrying below `chapter_score` up to
+   the configured retry limit. If the budget is exhausted, it restores the
+   best-scoring attempt and rebuilds `arc_summary.md` after advancing.
+3. **Revision** runs adversarial editing, cuts, reader-panel feedback, a brief,
+   and a rewrite for each chapter. It stops at the configured cycle limit or a
+   score plateau.
+4. **Review** performs manuscript review and fixes actionable items until
+   `review_stop_max_items` or `review_max_rounds` is reached.
+5. **Export** builds LaTeX and optionally compiles a PDF, and builds a
+   dependency-free EPUB3. There are no image or audiobook stages.
 
-See the generated research report for full architectural rationale.
+## Configuration and state
+
+Each role (`writer`, `evaluator`, and `reviewer`) has a required `primary`
+endpoint and an optional per-role `fallback` endpoint. Generated artifacts are
+protected by `state/manifest.json`; manual edits are not silently overwritten.
+Run observability is controlled by `logging` and `--verbosity`. Foundation
+attempts are logged under `logs/foundation/<layer>/`, draft attempts under
+`logs/draft/ch_NN/`, and cumulative project token totals are stored in
+`state/token_usage.json`.
+
+For the current architecture, see
+`Architecture-of-an-autonomous-pipeline-for-novel-generation.md`.

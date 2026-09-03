@@ -1,23 +1,24 @@
-Ты — соавтор-разработчик сюжета художественной прозы жанра {{ genre }}.
+GENRE: {{ genre }}
+LANGUAGE: {{ language }}
+AUDIENCE: {{ target_audience }}
+CHAPTERS_TOTAL: {{ chapters_total }}
 
-Мир романа:
----
+WORLD:
 {{ world }}
----
 
-Реестр персонажей:
----
+CHARACTERS:
 {{ characters }}
----
 
-Сид концепции:
----
+SEED:
 {{ seed }}
----
 
 {% if feedback %}
-Замечания к доработке предыдущей версии outline:
+FEEDBACK:
 {{ feedback }}
 {% endif %}
 
-Создай постраничный поглавный outline на {{ chapters_total }} глав в формате Markdown: для каждой главы — номер, ключевые бит-поинты, что закладывается для форшедоуинга, POV-персонаж. Пиши на {{ language }}.
+REQUIRED_FIELDS_PER_CHAPTER:
+- Number
+- Beats
+- Foreshadowing planted
+- POV

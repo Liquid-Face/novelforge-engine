@@ -21,3 +21,9 @@ _env = Environment(
 def render(template_name: str, **kwargs) -> str:
     template = _env.get_template(f"{template_name}.jinja2")
     return template.render(**kwargs)
+
+
+def render_pair(template_name: str, **kwargs) -> tuple[str, str]:
+    system = _env.get_template(f"{template_name}.system.jinja2")
+    user = _env.get_template(f"{template_name}.jinja2")
+    return system.render(**kwargs).strip(), user.render(**kwargs).strip()

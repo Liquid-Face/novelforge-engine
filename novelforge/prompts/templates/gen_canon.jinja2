@@ -1,23 +1,24 @@
-Ты — редактор непротиворечивости (continuity editor) романа.
+GENRE: {{ genre }}
+LANGUAGE: {{ language }}
+AUDIENCE: {{ target_audience }}
 
-Мир романа:
----
+WORLD:
 {{ world }}
----
 
-Реестр персонажей:
----
+CHARACTERS:
 {{ characters }}
----
 
-Outline:
----
+OUTLINE:
 {{ outline }}
----
 
 {% if feedback %}
-Замечания к доработке предыдущей версии canon:
+FEEDBACK:
 {{ feedback }}
 {% endif %}
 
-Составь базу твёрдых фактов (canon) в формате Markdown: имена, даты, географические привязки, установленные события, правила мира — всё, что не должно противоречить самому себе на протяжении романа. Пиши на {{ language }}.
+REQUIRED_ENTRIES:
+- Names
+- Dates
+- Places
+- Established events
+- World rules
