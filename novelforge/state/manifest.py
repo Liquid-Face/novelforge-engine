@@ -7,7 +7,6 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
-from typing import Optional
 
 
 def _sha256(path: Path) -> str:

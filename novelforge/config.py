@@ -1,15 +1,10 @@
 """
 Project configuration schema. This is the ONLY place non-lore, production
-parameters live (chapter count, genre, thresholds, model routing). Nothing
-about the actual story world/characters is defined here.
+parameters live (chapter count, genre, thresholds, model routing, logging).
+Nothing about the actual story world/characters is defined here.
 
 LLM configuration is role-first: each role (writer/evaluator/reviewer) owns
-its own primary endpoint and an optional fallback endpoint. This allows any
-role to be routed to any provider independently -- e.g. a small local Ollama
-model for drafting, while evaluator/reviewer use a large-context cloud model,
-each with its own independent failover target. Providers are never assumed
-to be "local" or "cloud"; that is just how a given endpoint happens to be
-configured by the user.
+its own primary endpoint and an optional fallback endpoint.
 """
 from __future__ import annotations
 from pathlib import Path
@@ -24,8 +19,6 @@ REQUIRED_ROLES: tuple[RoleName, ...] = ("writer", "evaluator", "reviewer")
 
 
 class EndpointConfig(BaseModel):
-    """A single addressable LLM backend: a provider label, its OpenAI-compatible
-    base URL, the model name to request, and optional generation overrides."""
     provider: ProviderKind
     base_url: str
     model: str
@@ -36,15 +29,11 @@ class EndpointConfig(BaseModel):
 
 
 class RoleConfig(BaseModel):
-    """Routing for one pipeline role: a required primary endpoint and an
-    optional fallback endpoint used only if the primary call fails."""
     primary: EndpointConfig
     fallback: Optional[EndpointConfig] = None
 
 
 class LLMConfig(BaseModel):
-    """Role-first LLM configuration. Defaults below apply to any endpoint
-    that does not override temperature/max_tokens/request_timeout_s itself."""
     roles: dict[RoleName, RoleConfig]
     temperature: float = 0.9
     max_tokens: int = 4096
@@ -58,8 +47,6 @@ class LLMConfig(BaseModel):
         return self
 
     def resolved_defaults_for(self, endpoint: EndpointConfig) -> tuple[float, int, int]:
-        """Effective (temperature, max_tokens, request_timeout_s) for an
-        endpoint, falling back to the pipeline-wide defaults."""
         return (
             endpoint.temperature if endpoint.temperature is not None else self.temperature,
             endpoint.max_tokens if endpoint.max_tokens is not None else self.max_tokens,
@@ -104,12 +91,22 @@ class ProjectMeta(BaseModel):
     total_length_words_target: int = 80000
 
 
+class LoggingConfig(BaseModel):
+    """Console/file observability settings. All non-lore, production
+    parameters -- kept here so logging behavior is configured per project,
+    not hardcoded in the engine."""
+    console_verbosity: Literal["quiet", "normal", "verbose"] = "normal"
+    log_to_file: bool = False
+    log_file_path: str = "logs/run.log"
+
+
 class ProjectConfig(BaseModel):
     project: ProjectMeta
     llm: LLMConfig
     thresholds: ThresholdsConfig = Field(default_factory=ThresholdsConfig)
     export: ExportConfig = Field(default_factory=ExportConfig)
     paths: PathsConfig = Field(default_factory=PathsConfig)
+    logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
     @classmethod
     def load(cls, path: str | Path) -> "ProjectConfig":

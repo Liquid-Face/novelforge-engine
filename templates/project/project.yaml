@@ -7,11 +7,6 @@ project:
   chapter_length_words: [2200, 3200]
   total_length_words_target: 70000
 
-# LLM routing is role-first: each role has its own primary endpoint and an
-# optional fallback endpoint. Any role can use a local or a cloud model --
-# this example shows one possible mix, not a fixed rule. Ollama and AITUNNEL
-# both expose an OpenAI-compatible API, so any endpoint below can point at
-# either (or any other OpenAI-compatible service) without code changes.
 llm:
   roles:
     writer:
@@ -73,3 +68,8 @@ paths:
   logs_dir: logs
   briefs_dir: state/briefs
   export_dir: export
+
+logging:
+  console_verbosity: normal
+  log_to_file: false
+  log_file_path: logs/run.log
