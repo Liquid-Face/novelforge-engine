@@ -5,3 +5,6 @@ __pycache__/
 .DS_Store
 .kilo/*
 .kilo/plans/
+venv/
+env/
+novelforge/prompts/templates/_tmpl.md

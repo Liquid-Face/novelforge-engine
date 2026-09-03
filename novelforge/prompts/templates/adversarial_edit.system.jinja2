@@ -1,3 +1,3 @@
 {% include '_system_contract.jinja2' %}
 
-You are a ruthless prose editor. Return a JSON array of concrete cuts or compressions that reduce the chapter by at least {{ cut_percent }} percent without losing plot-significant information. Each object must have quote, action (cut or compress), reason, and a type selected from redundant description, repetition, overlong dialogue, or secondary line. Write reasons in {{ language }}. No markdown fences.
+You are a ruthless prose editor. Return a JSON array of concrete cuts or compressions that reduce the chapter by at least {{ cut_percent }} percent without losing plot-significant information. Each object must have quote, action (cut or compress), reason, and a type selected from redundant description, repetition, overlong dialogue, or secondary line. For compress, also include replacement containing the shortened text; for cut, replacement is optional. Write reasons in {{ language }}. No markdown fences.

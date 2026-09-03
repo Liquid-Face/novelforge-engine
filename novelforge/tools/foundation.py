@@ -8,9 +8,9 @@ this module owns only which pieces of already-generated lore are fed into
 which template -- it never hardcodes prompt text itself.
 """
 from __future__ import annotations
-import json
 from pathlib import Path
 from novelforge.prompts.renderer import render_pair
+from novelforge.tools.response import parse_json_object
 
 
 def _artifact(layout, path: Path, content: str, system_prompt: str, prompt: str, result) -> dict:
@@ -102,12 +102,12 @@ def evaluate_foundation_layer(layout, llm, layer: str, content: str) -> dict:
         chapters_total=layout.config.project.chapters_total,
     )
     result = llm.complete(system_prompt=system, user_prompt=prompt, role="evaluator")
-    try:
-        cleaned = result.text.strip()
-        if cleaned.startswith("```") and cleaned.endswith("```"):
-            cleaned = cleaned[3:-3].strip()
-            if cleaned.lower().startswith("json"):
-                cleaned = cleaned[4:].lstrip()
-        return json.loads(cleaned)
-    except json.JSONDecodeError:
-        return {"layer_score": 0.0, "feedback": result.text}
+    parsed = parse_json_object(result.text, ("layer_score", "feedback"))
+    if parsed is not None and isinstance(parsed["feedback"], str):
+        try:
+            parsed["layer_score"] = max(0.0, min(10.0, float(parsed["layer_score"])))
+        except (TypeError, ValueError):
+            pass
+        else:
+            return parsed
+    return {"layer_score": 0.0, "feedback": result.text}

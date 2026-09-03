@@ -3,10 +3,10 @@ Revision-phase tools: adversarial editing, reader panel, brief generation,
 and rewriting a chapter from a brief.
 """
 from __future__ import annotations
-import json
 from novelforge.project import ProjectLayout
 from novelforge.llm.provider import LLMProvider
 from novelforge.prompts.renderer import render_pair
+from novelforge.tools.response import has_string_fields, parse_json_array, parse_json_object
 
 DEFAULT_PERSONAS = [
     ("Genre Fan", "заядлый читатель этого жанра, ищущий динамику и напряжение"),
@@ -22,10 +22,13 @@ def adversarial_edit(layout: ProjectLayout, llm: LLMProvider, chapter_index: int
                                  language=layout.config.project.language, genre=layout.config.project.genre,
                                  target_audience=layout.config.project.target_audience)
     result = llm.complete(system_prompt=system, user_prompt=prompt, role="evaluator")
-    try:
-        return json.loads(result.text)
-    except json.JSONDecodeError:
+    parsed = parse_json_array(result.text)
+    if parsed is None:
         return []
+    return [item for item in parsed if isinstance(item, dict)
+            and has_string_fields(item, ("quote", "action", "reason", "type"))
+            and item["action"] in {"cut", "compress"}
+            and item["type"] in {"redundant description", "repetition", "overlong dialogue", "secondary line"}]
 
 
 def reader_panel(layout: ProjectLayout, llm: LLMProvider, chapter_index: int) -> list[dict]:
@@ -38,8 +41,13 @@ def reader_panel(layout: ProjectLayout, llm: LLMProvider, chapter_index: int) ->
                                      target_audience=layout.config.project.target_audience)
         result = llm.complete(system_prompt=system, user_prompt=prompt, role="evaluator")
         try:
-            reactions.append(json.loads(result.text))
-        except json.JSONDecodeError:
+            parsed = parse_json_object(result.text, ("persona", "reaction", "would_continue_reading"))
+            if (parsed is None
+                    or not has_string_fields(parsed, ("persona", "reaction"))
+                    or not isinstance(parsed["would_continue_reading"], bool)):
+                raise ValueError("invalid reader-panel response")
+            reactions.append(parsed)
+        except (TypeError, ValueError):
             reactions.append({"persona": name, "reaction": result.text, "would_continue_reading": None})
     return reactions
 
@@ -68,6 +76,8 @@ def apply_cuts(layout: ProjectLayout, chapter_index: int, cuts: list[dict], forc
     for cut in cuts:
         quote = cut.get("quote", "")
         if quote and quote in text:
-            text = text.replace(quote, "" if cut.get("action") == "cut" else "")
+            replacement = "" if cut.get("action") == "cut" else cut.get("replacement")
+            if replacement is not None:
+                text = text.replace(quote, replacement)
     layout.write_guarded(layout.chapter_path(chapter_index), text, force=force)
     return text

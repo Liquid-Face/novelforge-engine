@@ -3,10 +3,10 @@ Phase 3b: dual-persona full-manuscript review, provider-agnostic (works with
 any model reachable via LLMProvider -- local Ollama or AITUNNEL-hosted models).
 """
 from __future__ import annotations
-import json
 from novelforge.project import ProjectLayout
 from novelforge.llm.provider import LLMProvider
 from novelforge.prompts.renderer import render_pair
+from novelforge.tools.response import has_string_fields, parse_json_object
 
 
 def build_full_manuscript(layout: ProjectLayout) -> str:
@@ -31,7 +31,10 @@ def review_manuscript(layout: ProjectLayout, llm: LLMProvider) -> dict:
         role="reviewer",
         max_tokens=8192,
     )
-    try:
-        return json.loads(result.text)
-    except json.JSONDecodeError:
-        return {"critic_review": result.text, "professor_review": "", "actionable_items": []}
+    parsed = parse_json_object(result.text, ("critic_review", "professor_review", "actionable_items"))
+    if (parsed is not None
+            and has_string_fields(parsed, ("critic_review", "professor_review"))
+            and isinstance(parsed["actionable_items"], list)
+            and all(isinstance(item, str) for item in parsed["actionable_items"])):
+        return parsed
+    return {"critic_review": result.text, "professor_review": "", "actionable_items": []}

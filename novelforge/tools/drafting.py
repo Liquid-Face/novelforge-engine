@@ -2,19 +2,10 @@
 Drafting-phase tools: writing and evaluating a single chapter.
 """
 from __future__ import annotations
-import json
 from novelforge.project import ProjectLayout
 from novelforge.llm.provider import LLMProvider
 from novelforge.prompts.renderer import render_pair
-
-
-def _parse_json_response(text: str) -> dict:
-    cleaned = text.strip()
-    if cleaned.startswith("```") and cleaned.endswith("```"):
-        cleaned = cleaned[3:-3].strip()
-        if cleaned.lower().startswith("json"):
-            cleaned = cleaned[4:].lstrip()
-    return json.loads(cleaned)
+from novelforge.tools.response import parse_json_object
 
 
 def _extract_chapter_beats(outline_text: str, chapter_index: int) -> str:
@@ -72,10 +63,15 @@ def evaluate_chapter(layout: ProjectLayout, llm: LLMProvider, chapter_index: int
         target_audience=layout.config.project.target_audience,
     )
     result = llm.complete(system_prompt=system, user_prompt=prompt, role="evaluator")
-    try:
-        parsed = _parse_json_response(result.text)
+    parsed = parse_json_object(result.text, ("score", "issues"))
+    if (parsed is not None and isinstance(parsed["issues"], list)
+            and all(isinstance(issue, str) for issue in parsed["issues"])):
+        try:
+            parsed["score"] = max(0.0, min(10.0, float(parsed["score"])))
+        except (TypeError, ValueError):
+            parsed = None
+    if parsed is not None:
         parsed["_evaluator"] = {"provider": result.provider, "model": result.model}
         return parsed
-    except json.JSONDecodeError:
-        return {"score": 0.0, "issues": [result.text], "raw": result.text,
-                "_evaluator": {"provider": result.provider, "model": result.model}}
+    return {"score": 0.0, "issues": [result.text], "raw": result.text,
+            "_evaluator": {"provider": result.provider, "model": result.model}}
